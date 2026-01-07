@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Charybdis Keyboard Trainer</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --key-base: #f0f0f0;
+            --key-dark: #333;
+            --highlight: #ff0055;
+            --highlight-layer: #4d94ff;
+            --highlight-press: #ffff00; /* Yellow for user press */
+            --text-main: #ffffff;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        /* --- UI Elements --- */
+        #game-status { text-align: center; margin-bottom: 40px; }
+        h1 { margin: 0; font-size: 1.5rem; color: #888; }
+        
+        #target-display {
+            font-size: 3rem;
+            font-weight: bold;
+            margin: 20px 0;
+            padding: 20px 40px;
+            border: 2px solid #555;
+            border-radius: 10px;
+            background: #222;
+            min-width: 200px;
+            display: inline-block;
+        }
+
+        #feedback {
+            height: 24px;
+            color: var(--highlight);
+            font-weight: bold;
+        }
+
+        #layer-indicator {
+            position: absolute;
+            top: 20px; right: 20px;
+            background: #333;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
+        /* --- Keyboard Container & Transforms --- */
+        .keyboard-container {
+            display: flex;
+            gap: 120px; /* Wide split */
+            perspective: 1200px;
+        }
+
+        .half-wrapper {
+            position: relative;
+            transform-style: preserve-3d;
+        }
+
+        /* Rotate the halves for Ergo feel */
+        .half-wrapper.left { transform: rotateY(10deg) rotateZ(-5deg); }
+        .half-wrapper.right { transform: rotateY(-10deg) rotateZ(5deg); }
+
+        /* --- The 4x6 Alpha Grid --- */
+        .alpha-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 54px);
+            grid-template-rows: repeat(4, 54px);
+            gap: 6px;
+        }
+
+        /* Column Staggering */
+        .alpha-grid > .key:nth-child(6n+1) { transform: translateY(15px); } 
+        .alpha-grid > .key:nth-child(6n+2) { transform: translateY(5px); }  
+        .alpha-grid > .key:nth-child(6n+3) { transform: translateY(-8px); } 
+        .alpha-grid > .key:nth-child(6n+4) { transform: translateY(-5px); } 
+        .alpha-grid > .key:nth-child(6n+5) { transform: translateY(0px); }  
+        .alpha-grid > .key:nth-child(6n+6) { transform: translateY(10px); } 
+
+        /* Right Hand Stagger Reversal */
+        .half-wrapper.right .alpha-grid > .key:nth-child(6n+1) { transform: translateY(10px); } 
+        .half-wrapper.right .alpha-grid > .key:nth-child(6n+2) { transform: translateY(0px); }  
+        .half-wrapper.right .alpha-grid > .key:nth-child(6n+3) { transform: translateY(-5px); } 
+        .half-wrapper.right .alpha-grid > .key:nth-child(6n+4) { transform: translateY(-8px); } 
+        .half-wrapper.right .alpha-grid > .key:nth-child(6n+5) { transform: translateY(5px); }  
+        .half-wrapper.right .alpha-grid > .key:nth-child(6n+6) { transform: translateY(15px); } 
+
+
+        /* --- Key Styling --- */
+        .key {
+            width: 54px; height: 54px;
+            background-color: var(--key-base);
+            color: #222;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            font-weight: 700;
+            box-shadow: 0 4px 0 #bbb;
+            transition: background-color 0.1s, transform 0.05s;
+            position: relative;
+            user-select: none;
+        }
+
+        .key.thumb {
+            background-color: #ddd;
+            height: 60px;
+        }
+
+        /* --- Thumb Cluster Layouts --- */
+        
+        .thumb-cluster.left {
+            position: absolute;
+            bottom: -155px; /* Shifted down */
+            right: -20px; 
+            display: grid;
+            grid-template-columns: repeat(3, 56px);
+            grid-template-rows: repeat(2, 62px);
+            gap: 4px;
+            transform: rotate(15deg);
+        }
+        .thumb-cluster.left .key:nth-child(4) { grid-column: 1; } 
+        .thumb-cluster.left .key:nth-child(5) { grid-column: 2; } 
+
+
+        .thumb-cluster.right {
+            position: absolute;
+            bottom: -155px; /* Shifted down */
+            left: -20px; 
+            display: grid;
+            grid-template-columns: repeat(2, 56px); 
+            grid-template-rows: repeat(2, 62px);
+            gap: 4px;
+            transform: rotate(-15deg);
+        }
+        .thumb-cluster.right .key:nth-child(3) { grid-column: 1; } 
+
+
+        /* --- Active States --- */
+        .key.target-highlight {
+            background-color: var(--highlight) !important;
+            color: white !important;
+            box-shadow: 0 4px 0 #990033 !important;
+            animation: pulse 1s infinite;
+        }
+
+        .key.layer-hold-highlight {
+            background-color: var(--highlight-layer) !important;
+            color: white !important;
+            box-shadow: 0 4px 0 #004499 !important;
+        }
+
+        /* The styles for when the user physically presses a key */
+        .key.active-press {
+            background-color: var(--highlight-press) !important;
+            color: black !important;
+            transform: translateY(3px); /* Physically move down */
+            box-shadow: 0 1px 0 #888 !important; /* Flatten shadow */
+        }
+
+        .sub-legend {
+            font-size: 0.6rem; color: #666;
+            position: absolute; bottom: 3px;
+        }
+        .key.target-highlight .sub-legend,
+        .key.layer-hold-highlight .sub-legend { color: #eee; }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="layer-indicator">Current View: <span id="current-layer-name">Base</span></div>
+
+    <div id="game-status">
+        <h1>Charybdis Trainer</h1>
+        <div id="target-display">Press Start</div>
+        <div id="feedback"></div>
+        <button onclick="startGame()" style="padding: 10px 20px; font-size: 1rem; cursor: pointer; margin-top: 10px;">Start / Reset</button>
+    </div>
+
+    <div class="keyboard-container">
+        <div class="half-wrapper left">
+            <div class="alpha-grid" id="left-alpha"></div>
+            <div class="thumb-cluster left" id="left-thumb"></div>
+        </div>
+
+        <div class="half-wrapper right">
+            <div class="alpha-grid" id="right-alpha"></div>
+            <div class="thumb-cluster right" id="right-thumb"></div>
+        </div>
+    </div>
+
+<script>
+    /**
+     * KEY MAPPINGS with 'code' property added for real-time highlighting
+     */
+
+    const leftKeysData = [
+        // Row 1
+        { id: 'l1r1', code: 'Escape', base: 'ESC', lower: '~', raise: 'F12' },
+        { id: 'l2r1', code: 'Digit1', base: '1', lower: '!', raise: 'F1' },
+        { id: 'l3r1', code: 'Digit2', base: '2', lower: '@', raise: 'F2' },
+        { id: 'l4r1', code: 'Digit3', base: '3', lower: '#', raise: 'F3' },
+        { id: 'l5r1', code: 'Digit4', base: '4', lower: '$', raise: 'F4' },
+        { id: 'l6r1', code: 'Digit5', base: '5', lower: '%', raise: 'F5' },
+        // Row 2
+        { id: 'l1r2', code: 'Tab', base: 'TAB', lower: 'RGB', raise: 'NXT' },
+        { id: 'l2r2', code: 'KeyQ', base: 'Q', lower: '', raise: '' },
+        { id: 'l3r2', code: 'KeyW', base: 'W', lower: '', raise: 'UP' },
+        { id: 'l4r2', code: 'KeyE', base: 'E', lower: '', raise: 'DWN' },
+        { id: 'l5r2', code: 'KeyR', base: 'R', lower: 'LCTL', raise: 'RGT' },
+        { id: 'l6r2', code: 'KeyT', base: 'T', lower: 'LSFT', raise: '' },
+        // Row 3
+        { id: 'l1r3', code: 'ShiftLeft', base: 'LSFT', lower: 'RGB', raise: 'PLY' },
+        { id: 'l2r3', code: 'KeyA', base: 'A', lower: 'LGUI', raise: 'LFT' },
+        { id: 'l3r3', code: 'KeyS', base: 'S', lower: 'LALT', raise: 'PGUP' },
+        { id: 'l4r3', code: 'KeyD', base: 'D', lower: 'LCTL', raise: 'PGDN' },
+        { id: 'l5r3', code: 'KeyF', base: 'F', lower: 'LSFT', raise: 'END' },
+        { id: 'l6r3', code: 'KeyG', base: 'G', lower: '', raise: '' },
+        // Row 4
+        { id: 'l1r4', code: 'ControlLeft', base: 'LCTL', lower: 'RGB', raise: 'PRV' },
+        { id: 'l2r4', code: 'KeyZ', base: 'Z', lower: '', raise: 'HOM' },
+        { id: 'l3r4', code: 'KeyX', base: 'X', lower: '', raise: '' },
+        { id: 'l4r4', code: 'KeyC', base: 'C', lower: '', raise: '' },
+        { id: 'l5r4', code: 'KeyV', base: 'V', lower: '', raise: '' },
+        { id: 'l6r4', code: 'KeyB', base: 'B', lower: '', raise: '' },
+    ];
+
+    const leftThumbData = [
+        { id: 'lt_gui', code: 'MetaLeft', base: 'LGUI', lower: 'GUI', raise: '∇', role: 'thumb' },    
+        { id: 'lt_spc', code: 'Space', base: 'SPC', lower: '∇', raise: '∇', role: 'thumb', type: 'lower-act' }, 
+        { id: 'lt_low', code: 'Fn', base: 'LOWER', lower: '∇', raise: '∇', role: 'thumb' },     // 'Fn' is best guess for layer key without QMK
+        { id: 'lt_alt', code: 'AltLeft', base: 'LALT', lower: '', raise: '', role: 'thumb' },        
+        { id: 'lt_bksp', code: 'Backspace', base: 'BSPC', lower: 'DEL', raise: '', role: 'thumb' }     
+    ];
+
+    const rightKeysData = [
+        // Row 1
+        { id: 'r6r1', code: 'Digit6', base: '6', lower: '^', raise: 'F6' },
+        { id: 'r5r1', code: 'Digit7', base: '7', lower: '&', raise: 'F7' },
+        { id: 'r4r1', code: 'Digit8', base: '8', lower: '*', raise: 'F8' },
+        { id: 'r3r1', code: 'Digit9', base: '9', lower: '(', raise: 'F9' },
+        { id: 'r2r1', code: 'Digit0', base: '0', lower: ')', raise: 'F10' },
+        { id: 'r1r1', code: 'Minus', base: '-', lower: '_', raise: 'F11' },
+        // Row 2
+        { id: 'r6r2', code: 'KeyY', base: 'Y', lower: '[', raise: '' },
+        { id: 'r5r2', code: 'KeyU', base: 'U', lower: '7', raise: '' },
+        { id: 'r4r2', code: 'KeyI', base: 'I', lower: '8', raise: '' },
+        { id: 'r3r2', code: 'KeyO', base: 'O', lower: '9', raise: '' },
+        { id: 'r2r2', code: 'KeyP', base: 'P', lower: ']', raise: 'VOL' },
+        { id: 'r1r2', code: 'Backslash', base: '\\', lower: '', raise: '' },
+        // Row 3
+        { id: 'r6r3', code: 'KeyH', base: 'H', lower: '+', raise: '' },
+        { id: 'r5r3', code: 'KeyJ', base: 'J', lower: '4', raise: 'RSFT' },
+        { id: 'r4r3', code: 'KeyK', base: 'K', lower: '5', raise: 'RCTL' },
+        { id: 'r3r3', code: 'KeyL', base: 'L', lower: '6', raise: 'RALT' },
+        { id: 'r2r3', code: 'Semicolon', base: ';', lower: '-', raise: 'GUI' },
+        { id: 'r1r3', code: 'Quote', base: '\'', lower: '=', raise: 'MUTE' },
+        // Row 4
+        { id: 'r6r4', code: 'KeyN', base: 'N', lower: '*', raise: '' },
+        { id: 'r5r4', code: 'KeyM', base: 'M', lower: '1', raise: '' },
+        { id: 'r4r4', code: 'Comma', base: ',', lower: '2', raise: '' },
+        { id: 'r3r4', code: 'Period', base: '.', lower: '3', raise: '' },
+        { id: 'r2r4', code: 'Slash', base: '/', lower: '/', raise: '' },
+        { id: 'r1r4', code: 'AltRight', base: 'LALT', lower: '.', raise: 'VOL' },
+    ];
+
+    const rightThumbData = [
+        { id: 'rt_raise', code: 'FnRight', base: 'RAISE', lower: '', raise: '∇', role: 'thumb', type: 'raise-act' }, 
+        { id: 'rt_ent', code: 'Enter', base: 'ENT', lower: '0', raise: '∇', role: 'thumb' },                       
+        { id: 'rt_del', code: 'Delete', base: 'DEL', lower: '.', raise: '', role: 'thumb' }                         
+    ];
+
+
+    // --- GAME LOGIC ---
+
+    const targetList = [
+        // Base Layer
+        { char: 'a', code: 'KeyA', name: 'A', layer: 'base', keyId: 'l2r3' },
+        { char: 's', code: 'KeyS', name: 'S', layer: 'base', keyId: 'l3r3' },
+        { char: 'd', code: 'KeyD', name: 'D', layer: 'base', keyId: 'l4r3' },
+        { char: 'f', code: 'KeyF', name: 'F', layer: 'base', keyId: 'l5r3' },
+        { char: 'j', code: 'KeyJ', name: 'J', layer: 'base', keyId: 'r5r3' },
+        { char: 'k', code: 'KeyK', name: 'K', layer: 'base', keyId: 'r4r3' },
+        { char: 'l', code: 'KeyL', name: 'L', layer: 'base', keyId: 'r3r3' },
+        { char: 'Enter', code: 'Enter', name: 'Enter', layer: 'base', keyId: 'rt_ent' },
+        { char: ' ', code: 'Space', name: 'Space', layer: 'base', keyId: 'lt_spc' },
+        { char: 'Backspace', code: 'Backspace', name: 'Backspace', layer: 'base', keyId: 'lt_bksp' },
+
+        // Lower Layer
+        { char: '!', code: 'Digit1', name: '!', layer: 'lower', keyId: 'l2r1' },
+        { char: '@', code: 'Digit2', name: '@', layer: 'lower', keyId: 'l3r1' },
+        { char: '7', code: 'Digit7', name: 'Num 7', layer: 'lower', keyId: 'r5r2' },
+        { char: '8', code: 'Digit8', name: 'Num 8', layer: 'lower', keyId: 'r4r2' },
+        
+        // Raise Layer
+        { char: 'ArrowUp', code: 'ArrowUp', name: 'Up Arrow', layer: 'raise', keyId: 'l3r2' },
+        { char: 'ArrowDown', code: 'ArrowDown', name: 'Down Arrow', layer: 'raise', keyId: 'l4r2' },
+        { char: 'F1', code: 'F1', name: 'F1', layer: 'raise', keyId: 'l2r1' },
+    ];
+
+    let currentTarget = null;
+    let mistakeCount = 0;
+    let isGameRunning = false;
+
+    function createKey(data) {
+        const k = document.createElement('div');
+        k.className = 'key';
+        if(data.role === 'thumb') k.classList.add('thumb');
+        
+        // Store data
+        k.dataset.id = data.id;
+        k.dataset.code = data.code || ''; // Store standard code for lookup
+        k.dataset.base = data.base || '';
+        k.dataset.lower = data.lower || '';
+        k.dataset.raise = data.raise || '';
+
+        renderKeyFace(k, 'base');
+        return k;
+    }
+
+    function renderKeyFace(element, layer) {
+        let mainText = element.dataset[layer];
+        if(!mainText && layer !== 'base') mainText = ""; 
+        
+        element.innerHTML = '';
+        const span = document.createElement('span');
+        span.innerText = mainText;
+        element.appendChild(span);
+
+        if (layer !== 'base' && mainText !== '') {
+            const sub = document.createElement('div');
+            sub.className = 'sub-legend';
+            sub.innerText = element.dataset.base;
+            element.appendChild(sub);
+        }
+    }
+
+    function buildKeyboard() {
+        ['left-alpha', 'left-thumb', 'right-alpha', 'right-thumb'].forEach(id => {
+            document.getElementById(id).innerHTML = '';
+        });
+
+        const la = document.getElementById('left-alpha');
+        leftKeysData.forEach(d => la.appendChild(createKey(d)));
+
+        const lt = document.getElementById('left-thumb');
+        leftThumbData.forEach(d => lt.appendChild(createKey(d)));
+
+        const ra = document.getElementById('right-alpha');
+        rightKeysData.forEach(d => ra.appendChild(createKey(d)));
+
+        const rt = document.getElementById('right-thumb');
+        rightThumbData.forEach(d => rt.appendChild(createKey(d)));
+    }
+
+    function updateKeyboardVisuals(layerMode) {
+        document.getElementById('current-layer-name').innerText = layerMode.toUpperCase();
+        document.querySelectorAll('.key').forEach(k => {
+            renderKeyFace(k, layerMode);
+            // reset logic highlights, but keep press highlights if held? 
+            // actually simpler to just clear 'game' highlights
+            k.classList.remove('target-highlight', 'layer-hold-highlight');
+        });
+    }
+
+    function showHint() {
+        if(!currentTarget) return;
+        updateKeyboardVisuals(currentTarget.layer);
+
+        const targetEl = document.querySelector(`.key[data-id="${currentTarget.keyId}"]`);
+        if(targetEl) targetEl.classList.add('target-highlight');
+
+        if(currentTarget.layer === 'lower') {
+            const act = document.querySelector(`.key[data-id="lt_spc"]`); 
+            if(act) act.classList.add('layer-hold-highlight');
+        } else if (currentTarget.layer === 'raise') {
+            const act = document.querySelector(`.key[data-id="rt_raise"]`);
+            if(act) act.classList.add('layer-hold-highlight');
+        }
+    }
+
+    function nextTurn() {
+        mistakeCount = 0;
+        document.getElementById('feedback').innerText = "";
+        updateKeyboardVisuals('base');
+        currentTarget = targetList[Math.floor(Math.random() * targetList.length)];
+        document.getElementById('target-display').innerText = `Press: ${currentTarget.name}`;
+    }
+
+    function handleInput(e) {
+        // --- 1. VISUAL FEEDBACK (Always runs) ---
+        // Find key with matching data-code
+        // We handle this via separate KeyDown/KeyUp listeners below to support holding keys,
+        // but checking here ensures we don't block default too early.
+        
+        if(!isGameRunning) return;
+        e.preventDefault(); 
+        
+        let match = false;
+        // Check if key matches target
+        if (e.key === currentTarget.char || e.code === currentTarget.code) match = true;
+
+        if(match) {
+            document.getElementById('feedback').innerText = "Correct!";
+            document.getElementById('feedback').style.color = "#00ff00";
+            setTimeout(nextTurn, 500);
+        } else {
+            mistakeCount++;
+            document.getElementById('feedback').innerText = `Try again (${mistakeCount}/3)`;
+            document.getElementById('feedback').style.color = "var(--highlight)";
+            if(mistakeCount >= 3) {
+                showHint();
+                document.getElementById('feedback').innerText = "Hint shown: Hold blue key, press red key.";
+            }
+        }
+    }
+
+    // Separate listeners for highlighting keys regardless of game logic
+    window.addEventListener('keydown', (e) => {
+        const keyEl = document.querySelector(`.key[data-code="${e.code}"]`);
+        if(keyEl) keyEl.classList.add('active-press');
+        if(isGameRunning) handleInput(e);
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const keyEl = document.querySelector(`.key[data-code="${e.code}"]`);
+        if(keyEl) keyEl.classList.remove('active-press');
+    });
+
+    function startGame() {
+        buildKeyboard();
+        isGameRunning = true;
+        nextTurn();
+    }
+
+    // Init
+    buildKeyboard();
+
+</script>
+</body>
+</html>
