@@ -1,7 +1,3 @@
-Here is a simple, clean README.md file for your project.
-
----
-
 # Charybdis Keyboard Trainer
 
 A lightweight, browser-based tool designed to help users learn and practice the layout of the **Charybdis** ergonomic split keyboard.
